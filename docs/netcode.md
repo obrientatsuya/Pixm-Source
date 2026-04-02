@@ -5,12 +5,47 @@
 ```
 Camada          Tecnologia              Propósito
 ────────────────────────────────────────────────────────
-Descoberta      DHT Kademlia (libp2p)   peer discovery, matchmaking sem servidor central
+Descoberta      DHT Kademlia (libp2p)   peer discovery via BitTorrent mainnet
 NAT Traversal   ICE/STUN → hole punch   conexão direta entre peers
 Transporte      UDP raw (non-blocking)  gameplay — sem overhead de protocolo
 Serialização    bitcode                 binário compacto, zero-copy
 Confiabilidade  seletiva (ACK bits)     inputs: reliable | posições: unreliable
 ```
+
+---
+
+## Matchmaking — Solução Temporária
+
+**Sem servidor próprio.** Bootstrap via DHT do BitTorrent mainnet (nodes públicos).
+
+```
+Bootstrap nodes (hardcoded no cliente):
+  router.bittorrent.com:6881
+  router.utorrent.com:6881
+  dht.transmissionbt.com:6881
+```
+
+**Fluxo atual:**
+```
+Host:
+  1. Gera room_id aleatório (32 bytes)
+  2. Anuncia no DHT: PUT(room_id, ip:porta)
+  3. Jogo exibe link: "pixm://join/<room_id_hex>"
+  4. Jogador compartilha o link (Discord, WhatsApp, etc.)
+
+Guest:
+  1. Clica no link → jogo abre via protocol handler do OS
+  2. DHT GET(room_id) → ip:porta do host
+  3. Conecta via UDP direto → partida começa
+```
+
+**Custo:** zero. Sem servidores próprios. Dados do jogo nunca passam pelo DHT — só ip:porta da sala.
+
+**Futuro (v2 — Discord Bot):**
+- Bot monitora canal de matchmaking
+- Jogadores fazem `/queue` → bot faz o par
+- Bot envia o link `pixm://join/<room_id>` via DM para ambos
+- Fluxo de conexão idêntico — só o "apresentador" muda
 
 ---
 
