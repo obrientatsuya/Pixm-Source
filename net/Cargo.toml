@@ -9,9 +9,9 @@ serde.workspace   = true
 tracing.workspace = true
 fixed.workspace   = true
 
-# DHT peer discovery (sem servidor central)
-libp2p = { version = "0.54", features = ["kad", "noise", "yamux", "tcp", "tokio"] }
-tokio  = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+# Fase 3+: DHT peer discovery
+# libp2p = { version = "0.54", features = ["kad", "noise", "yamux", "tcp", "tokio"] }
+# tokio  = { version = "1", features = ["rt-multi-thread", "net", "time"] }
 
-# Serialização compacta de endereços
-fnv = "1"
+# Fase 4+: NAT traversal
+# fnv = "1"
