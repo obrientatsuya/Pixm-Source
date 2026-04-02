@@ -22,7 +22,7 @@ pub fn move_target_system(world: &mut World) {
     let mut path_exhausted: Vec<hecs::Entity> = vec![];
 
     for (entity, (pos, vel, target, speed, maybe_path)) in world
-        .query_mut::<(&Position, &mut Velocity, &MoveTarget, &MoveSpeed, Option<&mut Path>)>()
+        .query_mut::<(&mut Position, &mut Velocity, &MoveTarget, &MoveSpeed, Option<&mut Path>)>()
     {
         if rooted.contains(&entity) {
             vel.0 = Vec2Fixed::ZERO;
@@ -40,8 +40,8 @@ pub fn move_target_system(world: &mut World) {
         let arr_sq  = speed.0 * speed.0; // chegou se dist < 1 tick de movimento
 
         if dist_sq <= arr_sq {
+            pos.0 = effective;   // snap na posição exata — sem offset residual
             vel.0 = Vec2Fixed::ZERO;
-            // Chegou ao waypoint: avança no Path
             if let Some(path) = maybe_path {
                 path.advance();
                 if path.exhausted() {

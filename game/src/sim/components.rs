@@ -154,6 +154,50 @@ impl Path {
     }
 }
 
+// ─── Habilidades ─────────────────────────────────────────────────────────────
+
+/// Efeito de uma habilidade — o engine aplica, o jogo configura.
+#[derive(Debug, Clone, Copy)]
+pub enum AbilityEffect {
+    /// Dano no inimigo mais próximo do ponto clicado.
+    InstantDamage { amount: i32, hit_radius: Fixed, cc: Option<(CcKind, u32)> },
+    /// Dano em todos os inimigos no raio do ponto clicado.
+    AreaDamage    { radius: Fixed, amount: i32 },
+    /// Projétil viajando até o alvo (Fase 11 implementa; por ora direct damage).
+    Projectile    { speed: Fixed, damage: i32 },
+    /// Dash em direção ao ponto clicado.
+    Dash          { distance: Fixed },
+}
+
+/// Definição de uma habilidade — dados puros.
+#[derive(Debug, Clone, Copy)]
+pub struct AbilityDef {
+    pub range:    Fixed, // alcance do lançador ao ponto alvo
+    pub cooldown: u32,   // ticks entre usos
+    pub effect:   AbilityEffect,
+}
+
+/// 4 slots de habilidade por entidade (Q/W/E/R).
+#[derive(Debug, Clone)]
+pub struct AbilitySlots(pub [Option<AbilityDef>; 4]);
+
+impl Default for AbilitySlots {
+    fn default() -> Self { Self([None; 4]) }
+}
+
+/// Cooldowns ativos por slot (ticks restantes).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AbilityCooldowns(pub [u32; 4]);
+
+/// Habilidade pendente de processar neste tick.
+/// Adicionada por apply_inputs, consumida por ability_system.
+#[derive(Debug, Clone, Copy)]
+pub struct PendingAbility {
+    pub slot:     u8,
+    pub target_x: Fixed,
+    pub target_y: Fixed,
+}
+
 // ─── Marcadores (zero dados — presença = propriedade) ────────────────────────
 
 /// Marcador: entidade será removida ao fim do tick.

@@ -6,7 +6,7 @@
 use hecs::World;
 use crate::core::events::EventBus;
 use crate::sim::rng::DeterministicRng;
-use crate::sim::systems::{movement, combat, buffs};
+use crate::sim::systems::{abilities, movement, combat, buffs};
 use crate::sim::pathfinding::{pathfinding_system, NavigationGrid};
 use crate::input::events::InputEvent;
 use net::rollback::prediction::RawInput;
@@ -44,23 +44,27 @@ impl SimWorld {
         movement::movement_system(&mut self.world);
         movement::clear_arrived_targets(&mut self.world);
 
-        // 4. Cooldowns
-        combat::cooldown_system(&mut self.world);
+        // 4. Habilidades pendentes → efeitos
+        abilities::ability_system(&mut self.world, &mut self.events);
 
-        // 5. Auto-attack → DamageEvents
+        // 5. Cooldowns (auto-attack + habilidades)
+        combat::cooldown_system(&mut self.world);
+        abilities::ability_cooldown_system(&mut self.world);
+
+        // 6. Auto-attack → DamageEvents
         combat::auto_attack_system(&mut self.world, &mut self.rng, &mut self.events);
 
-        // 6. Resolve dano → DeathEvents
+        // 7. Resolve dano → DeathEvents
         combat::health_system(&mut self.world, &mut self.events);
 
-        // 7. Processa mortes → marca Dying
+        // 8. Processa mortes → marca Dying
         combat::death_system(&mut self.world, &mut self.events);
 
-        // 8. Buffs/CC
+        // 9. Buffs/CC
         buffs::crowd_control_system(&mut self.world);
         buffs::buff_system(&mut self.world, &mut self.events);
 
-        // 9. Remove entidades mortas
+        // 10. Remove entidades mortas
         combat::cleanup_system(&mut self.world);
 
         // 10. Drena eventos restantes (não carrega pro próximo tick)
@@ -70,7 +74,7 @@ impl SimWorld {
 
     fn apply_inputs(&mut self, inputs: &[InputEvent]) {
         use crate::core::types::Vec2Fixed;
-        use crate::sim::components::{MoveTarget, Owner};
+        use crate::sim::components::{MoveTarget, Owner, PendingAbility};
         use crate::input::events::bits_to_fixed;
 
         for input in inputs {
@@ -98,7 +102,22 @@ impl SimWorld {
                         }
                     }
                 }
-                // Outros inputs (Ability, Stop, etc.) implementados pelo jogo
+                InputEvent::Ability { player_id, slot, x_bits, y_bits, .. } => {
+                    let pending = PendingAbility {
+                        slot:     *slot,
+                        target_x: bits_to_fixed(*x_bits),
+                        target_y: bits_to_fixed(*y_bits),
+                    };
+                    let pid = *player_id;
+                    let entities: Vec<hecs::Entity> = self.world
+                        .query::<&Owner>().iter()
+                        .filter(|(_, o)| o.0 == pid)
+                        .map(|(e, _)| e)
+                        .collect();
+                    for e in entities {
+                        let _ = self.world.insert_one(e, pending);
+                    }
+                }
                 _ => {}
             }
         }
