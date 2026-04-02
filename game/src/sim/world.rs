@@ -7,24 +7,27 @@ use hecs::World;
 use crate::core::events::EventBus;
 use crate::sim::rng::DeterministicRng;
 use crate::sim::systems::{movement, combat, buffs};
+use crate::sim::pathfinding::{pathfinding_system, NavigationGrid};
 use crate::input::events::InputEvent;
 use net::rollback::prediction::RawInput;
 use net::rollback::session::Simulation;
 
 pub struct SimWorld {
-    pub world: World,
-    pub events: EventBus,
-    pub rng: DeterministicRng,
-    pub tick: u64,
+    pub world:    World,
+    pub events:   EventBus,
+    pub rng:      DeterministicRng,
+    pub tick:     u64,
+    pub nav_grid: NavigationGrid,
 }
 
 impl SimWorld {
     pub fn new(rng_seed: u64) -> Self {
         Self {
-            world:  World::new(),
-            events: EventBus::new(),
-            rng:    DeterministicRng::new(rng_seed),
-            tick:   0,
+            world:    World::new(),
+            events:   EventBus::new(),
+            rng:      DeterministicRng::new(rng_seed),
+            tick:     0,
+            nav_grid: NavigationGrid::default_128(),
         }
     }
 
@@ -33,31 +36,34 @@ impl SimWorld {
         // 1. Aplica inputs → componentes (MoveTarget, abilities, etc.)
         self.apply_inputs(inputs);
 
-        // 2. Movimento
+        // 2. Pathfinding: MoveTarget → Path de waypoints (só quando muda)
+        pathfinding_system(&mut self.world, &self.nav_grid);
+
+        // 3. Movimento
         movement::move_target_system(&mut self.world);
         movement::movement_system(&mut self.world);
         movement::clear_arrived_targets(&mut self.world);
 
-        // 3. Cooldowns
+        // 4. Cooldowns
         combat::cooldown_system(&mut self.world);
 
-        // 4. Auto-attack → DamageEvents
+        // 5. Auto-attack → DamageEvents
         combat::auto_attack_system(&mut self.world, &mut self.rng, &mut self.events);
 
-        // 5. Resolve dano → DeathEvents
+        // 6. Resolve dano → DeathEvents
         combat::health_system(&mut self.world, &mut self.events);
 
-        // 6. Processa mortes → marca Dying
+        // 7. Processa mortes → marca Dying
         combat::death_system(&mut self.world, &mut self.events);
 
-        // 7. Buffs/CC
+        // 8. Buffs/CC
         buffs::crowd_control_system(&mut self.world);
         buffs::buff_system(&mut self.world, &mut self.events);
 
-        // 8. Remove entidades mortas
+        // 9. Remove entidades mortas
         combat::cleanup_system(&mut self.world);
 
-        // 9. Drena eventos restantes (não carrega pro próximo tick)
+        // 10. Drena eventos restantes (não carrega pro próximo tick)
         self.events.clear();
         self.tick += 1;
     }
@@ -119,9 +125,12 @@ impl SimWorld {
 
 impl Clone for SimWorld {
     fn clone(&self) -> Self {
-        // Clone via serialização — garante que o snapshot é idêntico à sim real
+        // nav_grid não muda durante a partida — clona direto (barato)
+        // Estado da sim clona via serialização para garantir equivalência
         let data = self.serialize();
-        Self::deserialize(&data)
+        let mut s = Self::deserialize(&data);
+        s.nav_grid = self.nav_grid.clone();
+        s
     }
 }
 

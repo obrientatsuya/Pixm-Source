@@ -1,14 +1,16 @@
 /// Sistemas de movimento — move_target e integração de posição.
 ///
-/// Sem lógica de jogo — opera sobre componentes genéricos.
-/// Funciona para heróis, minions, projéteis — qualquer entidade com os componentes certos.
+/// move_target_system: Path-aware. Se entidade tem Path, segue waypoints.
+/// Quando waypoint alcançado, avança; quando Path esgotado, remove-o.
+/// Sem Path: movimento direto ao MoveTarget (fallback ou entidades simples).
 
 use hecs::World;
 use crate::core::types::Vec2Fixed;
-use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed, CrowdControl, CcKind};
+use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed, Path,
+                              CrowdControl, CcKind};
 
-/// Resolve MoveTarget → Velocity.
-/// Entidades com Root/Stun não se movem.
+/// Resolve MoveTarget/Path → Velocity.
+/// Entidades com Root/Stun/Knockup ficam paradas.
 pub fn move_target_system(world: &mut World) {
     let rooted: Vec<hecs::Entity> = world
         .query::<&CrowdControl>()
@@ -17,24 +19,42 @@ pub fn move_target_system(world: &mut World) {
         .map(|(e, _)| e)
         .collect();
 
-    for (entity, (pos, vel, target, speed)) in world
-        .query_mut::<(&Position, &mut Velocity, &MoveTarget, &MoveSpeed)>()
+    let mut path_exhausted: Vec<hecs::Entity> = vec![];
+
+    for (entity, (pos, vel, target, speed, maybe_path)) in world
+        .query_mut::<(&Position, &mut Velocity, &MoveTarget, &MoveSpeed, Option<&mut Path>)>()
     {
         if rooted.contains(&entity) {
             vel.0 = Vec2Fixed::ZERO;
             continue;
         }
 
-        let dir = target.0 - pos.0;
-        let dist_sq = dir.length_sq();
-        let arrival_sq = speed.0 * speed.0; // chegou se dist < speed (1 tick)
+        // Click-to-move: se há Path usa waypoint atual, senão vai direto
+        let effective = match maybe_path.as_ref().and_then(|p| p.current_wp()) {
+            Some(wp) => wp,
+            None     => target.0,
+        };
 
-        if dist_sq <= arrival_sq {
-            // Chegou ao destino
+        let dir     = effective - pos.0;
+        let dist_sq = dir.length_sq();
+        let arr_sq  = speed.0 * speed.0; // chegou se dist < 1 tick de movimento
+
+        if dist_sq <= arr_sq {
             vel.0 = Vec2Fixed::ZERO;
+            // Chegou ao waypoint: avança no Path
+            if let Some(path) = maybe_path {
+                path.advance();
+                if path.exhausted() {
+                    path_exhausted.push(entity);
+                }
+            }
         } else {
             vel.0 = dir.normalize() * speed.0;
         }
+    }
+
+    for e in path_exhausted {
+        let _ = world.remove_one::<Path>(e);
     }
 }
 
@@ -45,13 +65,20 @@ pub fn movement_system(world: &mut World) {
     }
 }
 
-/// Remove MoveTarget quando entidade chegou (velocidade zerada).
+/// Remove MoveTarget quando entidade chegou E não tem Path ativo.
+/// Path esgotado já foi removido em move_target_system.
 pub fn clear_arrived_targets(world: &mut World) {
-    let arrived: Vec<hecs::Entity> = world
+    // Candidatos: vel == 0 e tem MoveTarget
+    let candidates: Vec<hecs::Entity> = world
         .query::<(&Velocity, &MoveTarget)>()
         .iter()
         .filter(|(_, (vel, _))| vel.0 == Vec2Fixed::ZERO)
         .map(|(e, _)| e)
+        .collect();
+
+    // Só remove se não há Path ativo (Path ativo = ainda em trânsito)
+    let arrived: Vec<hecs::Entity> = candidates.into_iter()
+        .filter(|e| world.get::<&Path>(*e).is_err())
         .collect();
 
     for entity in arrived {
@@ -102,5 +129,58 @@ mod tests {
 
         let p = world.get::<&Position>(e).unwrap();
         assert_eq!(p.0.x, Fixed::ZERO, "entidade com root não deve mover");
+    }
+
+    #[test]
+    fn follows_path_waypoints() {
+        let mut world = World::new();
+        // Dois waypoints: (5,0) depois (10,0)
+        let path = Path {
+            waypoints:   vec![
+                Vec2Fixed::new(fixed(5.0), fixed(0.0)),
+                Vec2Fixed::new(fixed(10.0), fixed(0.0)),
+            ],
+            current:     0,
+            destination: Vec2Fixed::new(fixed(10.0), fixed(0.0)),
+        };
+        let e = world.spawn((
+            pos(0.0, 0.0),
+            Velocity::default(),
+            MoveTarget(Vec2Fixed::new(fixed(10.0), fixed(0.0))),
+            speed(2.0),
+            path,
+        ));
+
+        // Avança até chegar perto do primeiro waypoint
+        for _ in 0..10 {
+            move_target_system(&mut world);
+            movement_system(&mut world);
+        }
+
+        // Deve ter avançado em direção a x=5
+        let p = world.get::<&Position>(e).unwrap();
+        assert!(p.0.x > fixed(0.0), "deve ter avançado");
+    }
+
+    #[test]
+    fn path_removed_when_exhausted() {
+        let mut world = World::new();
+        // Waypoint muito próximo — chega em 1 tick
+        let path = Path {
+            waypoints:   vec![Vec2Fixed::new(fixed(1.0), fixed(0.0))],
+            current:     0,
+            destination: Vec2Fixed::new(fixed(1.0), fixed(0.0)),
+        };
+        let e = world.spawn((
+            pos(0.0, 0.0),
+            Velocity::default(),
+            MoveTarget(Vec2Fixed::new(fixed(1.0), fixed(0.0))),
+            speed(2.0), // speed > dist → chega imediatamente
+            path,
+        ));
+
+        move_target_system(&mut world);
+
+        assert!(world.get::<&Path>(e).is_err(), "Path deve ser removido ao esgotar");
     }
 }

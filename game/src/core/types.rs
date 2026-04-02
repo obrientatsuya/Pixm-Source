@@ -43,16 +43,20 @@ impl Vec2Fixed {
         dx * dx + dy * dy
     }
 
-    /// Normaliza o vetor (fixed-point — usa newton-raphson para sqrt inversa).
-    /// Retorna ZERO se o vetor é zero.
+    /// Normaliza o vetor. Retorna ZERO se o vetor é zero.
+    /// Usa sqrt inteira 128-bit para manter determinismo sem float.
     pub fn normalize(&self) -> Self {
         let sq = self.length_sq();
         if sq == Fixed::ZERO { return Self::ZERO; }
 
-        // Aproximação de sqrt via integer sqrt
+        // Para I32F32 (Q32.32): sq_raw = valor * 2^32
+        // sqrt_raw correto = sqrt(valor) * 2^32 = sqrt(sq_raw * 2^32)
         let sq_raw = sq.to_bits();
-        let sqrt_raw = isqrt_fixed(sq_raw);
+        if sq_raw <= 0 { return Self::ZERO; }
+        let extended = (sq_raw as u128) << 32;
+        let sqrt_raw = isqrt_u128(extended) as i64;
         let sqrt = Fixed::from_bits(sqrt_raw);
+        if sqrt == Fixed::ZERO { return Self::ZERO; }
 
         Self {
             x: self.x / sqrt,
@@ -90,9 +94,9 @@ impl std::ops::Mul<Fixed> for Vec2Fixed {
     }
 }
 
-/// Integer square root para fixed-point (aproximação).
-fn isqrt_fixed(n: i64) -> i64 {
-    if n <= 0 { return 0; }
+/// Integer square root para u128 (Newton-Raphson).
+fn isqrt_u128(n: u128) -> u128 {
+    if n == 0 { return 0; }
     let mut x = n;
     let mut y = (x + 1) / 2;
     while y < x {

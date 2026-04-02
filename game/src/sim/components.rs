@@ -128,6 +128,32 @@ pub enum ProjectileTarget {
     Point(Vec2Fixed),                // projétil vai para ponto fixo (skillshot)
 }
 
+// ─── Pathfinding ─────────────────────────────────────────────────────────────
+
+/// Caminho computado pelo A* — waypoints para seguir até o destino.
+/// Criado por pathfinding_system, consumido por move_target_system.
+#[derive(Debug, Clone)]
+pub struct Path {
+    pub waypoints:   Vec<Vec2Fixed>,
+    pub current:     usize,
+    pub destination: Vec2Fixed, // destino original (detecta novo click)
+}
+
+impl Path {
+    /// Waypoint atual (None = caminho esgotado).
+    pub fn current_wp(&self) -> Option<Vec2Fixed> {
+        self.waypoints.get(self.current).copied()
+    }
+
+    pub fn advance(&mut self) {
+        self.current += 1;
+    }
+
+    pub fn exhausted(&self) -> bool {
+        self.current >= self.waypoints.len()
+    }
+}
+
 // ─── Marcadores (zero dados — presença = propriedade) ────────────────────────
 
 /// Marcador: entidade será removida ao fim do tick.
