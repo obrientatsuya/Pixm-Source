@@ -10,10 +10,8 @@ fixed.workspace   = true
 serde.workspace   = true
 tracing.workspace = true
 
-# Godot 4 GDExtension bindings
-godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
+hecs    = "0.10"   # ECS substrate
+godot   = { git = "https://github.com/godot-rust/gdext", branch = "master" }
 
 [lib]
-# cdylib = .dll (Windows) / .so (Linux) / .dylib (macOS)
-# Godot carrega essa biblioteca como extensão nativa
 crate-type = ["cdylib"]

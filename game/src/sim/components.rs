@@ -1,0 +1,137 @@
+/// Componentes da simulação — dados puros, zero lógica.
+///
+/// O engine não conhece "herói" ou "minion" — são composições destes componentes.
+/// Toda lógica fica nos sistemas em sim/systems/.
+
+use crate::core::types::{Fixed, Vec2Fixed, PlayerId};
+
+// ─── Espaciais ───────────────────────────────────────────────────────────────
+
+/// Posição no mundo (fixed-point).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Position(pub Vec2Fixed);
+
+/// Velocidade atual (unidades/tick).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Velocity(pub Vec2Fixed);
+
+/// Destino de movimento (click-to-move).
+#[derive(Debug, Clone, Copy)]
+pub struct MoveTarget(pub Vec2Fixed);
+
+/// Velocidade máxima de movimento (unidades/tick).
+#[derive(Debug, Clone, Copy)]
+pub struct MoveSpeed(pub Fixed);
+
+// ─── Combate ─────────────────────────────────────────────────────────────────
+
+/// Pontos de vida.
+#[derive(Debug, Clone, Copy)]
+pub struct Health {
+    pub current: i32,
+    pub max:     i32,
+}
+
+impl Health {
+    pub fn new(max: i32) -> Self { Self { current: max, max } }
+    pub fn is_dead(&self) -> bool { self.current <= 0 }
+    pub fn apply_damage(&mut self, amount: i32) { self.current = (self.current - amount).max(0); }
+}
+
+/// Range de ataque (fixed-point — comparar com dist_sq).
+#[derive(Debug, Clone, Copy)]
+pub struct AttackRange(pub Fixed);
+
+/// Dano base de auto-attack.
+#[derive(Debug, Clone, Copy)]
+pub struct AttackDamage(pub i32);
+
+/// Ticks entre auto-attacks.
+#[derive(Debug, Clone, Copy)]
+pub struct AttackSpeed(pub u32);
+
+/// Cooldown atual de auto-attack (ticks restantes).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AttackCooldown(pub u32);
+
+/// Chance de crítico (0..100 inteiro).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CritChance(pub u8);
+
+// ─── Crowd Control ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CcKind {
+    Stun,
+    Root,
+    Slow(u8), // porcentagem de redução (0..100)
+    Knockup,
+    Silence,
+}
+
+/// CC ativo nesta entidade.
+#[derive(Debug, Clone, Copy)]
+pub struct CrowdControl {
+    pub kind:            CcKind,
+    pub ticks_remaining: u32,
+}
+
+// ─── Buffs ───────────────────────────────────────────────────────────────────
+
+/// Buff ou debuff com ID e duração em ticks.
+#[derive(Debug, Clone, Copy)]
+pub struct Buff {
+    pub id:              u16,
+    pub stacks:          u8,
+    pub ticks_remaining: u32,
+    pub magnitude:       i32, // valor do efeito (depende do buff_id)
+}
+
+// ─── Identidade ──────────────────────────────────────────────────────────────
+
+/// Dono da entidade (qual player controla).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Owner(pub PlayerId);
+
+/// Time da entidade (0 = time A, 1 = time B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Team(pub u8);
+
+/// Range de visão (para fog of war).
+#[derive(Debug, Clone, Copy)]
+pub struct VisionRange(pub Fixed);
+
+// ─── IA ──────────────────────────────────────────────────────────────────────
+
+/// Entidade alvo da IA (minions, torres).
+#[derive(Debug, Clone, Copy)]
+pub struct AiTarget(pub hecs::Entity);
+
+/// Waypoints do caminho fixo (minions seguem lanes).
+#[derive(Debug, Clone, Copy)]
+pub struct WaypointIndex(pub u8);
+
+// ─── Projéteis ───────────────────────────────────────────────────────────────
+
+/// Dados de um projétil em voo.
+#[derive(Debug, Clone, Copy)]
+pub struct Projectile {
+    pub owner:    hecs::Entity,
+    pub damage:   i32,
+    pub speed:    Fixed,
+    pub target:   ProjectileTarget,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ProjectileTarget {
+    Entity(hecs::Entity),            // projétil trackeia entidade (homing)
+    Point(Vec2Fixed),                // projétil vai para ponto fixo (skillshot)
+}
+
+// ─── Marcadores (zero dados — presença = propriedade) ────────────────────────
+
+/// Marcador: entidade será removida ao fim do tick.
+pub struct Dying;
+
+/// Marcador: entidade está morta (aguardando respawn).
+pub struct Dead;

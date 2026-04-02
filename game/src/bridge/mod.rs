@@ -1,2 +1,2 @@
-pub mod renderer;
 pub mod input_bridge;
+pub mod renderer;
