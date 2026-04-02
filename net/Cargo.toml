@@ -1,0 +1,17 @@
+[package]
+name    = "net"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcode.workspace = true
+serde.workspace   = true
+tracing.workspace = true
+fixed.workspace   = true
+
+# DHT peer discovery (sem servidor central)
+libp2p = { version = "0.54", features = ["kad", "noise", "yamux", "tcp", "tokio"] }
+tokio  = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+
+# Serialização compacta de endereços
+fnv = "1"

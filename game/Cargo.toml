@@ -1,0 +1,19 @@
+[package]
+name    = "game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+net.path          = "../net"
+bitcode.workspace = true
+fixed.workspace   = true
+serde.workspace   = true
+tracing.workspace = true
+
+# Godot 4 GDExtension bindings
+godot = { git = "https://github.com/godot-rust/gdext", branch = "master" }
+
+[lib]
+# cdylib = .dll (Windows) / .so (Linux) / .dylib (macOS)
+# Godot carrega essa biblioteca como extensão nativa
+crate-type = ["cdylib"]
