@@ -11,6 +11,10 @@ use crate::core::types::{Fixed, Vec2Fixed, PlayerId};
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Position(pub Vec2Fixed);
 
+/// Posição no início do tick anterior — usada para interpolação de render.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PrevPosition(pub Vec2Fixed);
+
 /// Velocidade atual (unidades/tick).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Velocity(pub Vec2Fixed);

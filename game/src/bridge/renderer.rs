@@ -139,20 +139,22 @@ impl GameLoopNode {
 }
 
 impl GameLoopNode {
-    /// Lê posição da sim e atualiza o hero_node (sem interpolação — snap).
-    /// TODO: interpolar entre prev_pos e cur_pos usando alpha para suavidade.
-    fn update_render(&mut self, _alpha: Fixed) {
-        use crate::sim::components::{Position, Owner};
+    /// Interpola posição entre o tick anterior e o atual usando alpha.
+    /// Elimina jitter — render roda a 60+ fps, sim roda a 60 Hz fixo.
+    fn update_render(&mut self, alpha: Fixed) {
+        use crate::sim::components::{Position, PrevPosition, Owner};
         use crate::core::types::PlayerId;
 
-        // Lê posição do jogador local sem mover o borrow de hero_node
         let hero_pos = self.sim.as_ref().and_then(|sim| {
             sim.world
-                .query::<(&Position, &Owner)>()
+                .query::<(&Position, Option<&PrevPosition>, &Owner)>()
                 .iter()
-                .find(|(_, (_, o))| o.0 == PlayerId(0))
-                .map(|(_, (pos, _))| {
-                    Vector2::new(pos.0.x.to_num::<f32>(), pos.0.y.to_num::<f32>())
+                .find(|(_, (_, _, o))| o.0 == PlayerId(0))
+                .map(|(_, (pos, prev, _))| {
+                    // Se PrevPosition ainda não existe (primeiro tick): usa pos direto
+                    let from = prev.map(|p| p.0).unwrap_or(pos.0);
+                    let interp = from.lerp(pos.0, alpha);
+                    Vector2::new(interp.x.to_num::<f32>(), interp.y.to_num::<f32>())
                 })
         });
 

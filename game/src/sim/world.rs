@@ -33,6 +33,9 @@ impl SimWorld {
 
     /// Executa 1 tick completo com os inputs fornecidos.
     pub fn run_tick(&mut self, inputs: &[InputEvent]) {
+        // 0. Snapshot de posições para interpolação de render
+        self.save_prev_positions();
+
         // 1. Aplica inputs → componentes (MoveTarget, abilities, etc.)
         self.apply_inputs(inputs);
 
@@ -73,6 +76,18 @@ impl SimWorld {
         // 10. Drena eventos restantes (não carrega pro próximo tick)
         self.events.clear();
         self.tick += 1;
+    }
+
+    fn save_prev_positions(&mut self) {
+        use crate::sim::components::{Position, PrevPosition};
+        let snapshot: Vec<(hecs::Entity, PrevPosition)> = self.world
+            .query::<&Position>()
+            .iter()
+            .map(|(e, p)| (e, PrevPosition(p.0)))
+            .collect();
+        for (e, prev) in snapshot {
+            let _ = self.world.insert_one(e, prev);
+        }
     }
 
     fn apply_inputs(&mut self, inputs: &[InputEvent]) {
