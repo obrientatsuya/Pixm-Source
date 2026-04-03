@@ -1,50 +1,40 @@
-## hp_bar.gd — barra de HP estilo LoL.
-##
-## Adiciona como filho de qualquer Node2D (herói, minion, torre).
-## Chama set_health(current, max) a cada frame para atualizar.
-##
-## Características:
-##   - Segmentos de 100 HP com divisórias
-##   - Marcos em 25/50/75% com linha mais grossa
-##   - Ghost bar animada: delay → desliza até o valor atual
-##   - Cor da ghost bar: amarelo (dano leve) → laranja → vermelho (dano pesado)
-##   - Barra principal muda de cor: verde → amarelo → vermelho por %
+## hp_bar.gd — barra de HP estilo LoL com cantos arredondados.
 
 extends Control
 
-const SEG_HP       := 100      # cada notch = 100 HP
-const BAR_W        := 80.0
-const BAR_H        := 8.0
-const GHOST_DELAY  := 0.45     # segundos antes da sombra começar a mover
-const GHOST_SPEED  := 0.30     # fração da barra por segundo
+const SEG_HP      := 50
+const BAR_W       := 80.0
+const BAR_H       := 8.0
+const MANA_H      := 3.0
+const GAP         := 2.0
+const RADIUS      := 3        # arredondamento HP
+const RADIUS_MANA := 1        # arredondamento mana
+const GHOST_DELAY := 0.45
+const GHOST_SPEED := 0.30
 
 var max_hp     : int   = 1
 var current_hp : int   = 1
-
-var _displayed : float = 1.0   # ghost bar HP value
+var _displayed : float = 1.0
 var _ghost_col : Color = Color(1.0, 0.9, 0.15, 0.85)
 var _delay     : float = 0.0
 var _ready_set : bool  = false
 
-# ─── API pública ──────────────────────────────────────────────────────────────
+# ─── API ──────────────────────────────────────────────────────────────────────
 
 func set_health(cur: int, mx: int) -> void:
 	mx = max(mx, 1)
-
 	if not _ready_set:
 		_displayed = float(cur)
 		_ready_set = true
 	elif cur < current_hp:
-		# Calcula cor da ghost com base no % de dano recebido
 		var lost_pct := float(current_hp - cur) / float(mx)
 		if lost_pct < 0.10:
-			_ghost_col = Color(1.00, 0.90, 0.15, 0.85)  # amarelo
+			_ghost_col = Color(1.00, 0.90, 0.15, 0.85)
 		elif lost_pct < 0.25:
-			_ghost_col = Color(1.00, 0.55, 0.00, 0.85)  # laranja
+			_ghost_col = Color(1.00, 0.55, 0.00, 0.85)
 		else:
-			_ghost_col = Color(0.90, 0.15, 0.10, 0.85)  # vermelho
+			_ghost_col = Color(0.90, 0.15, 0.10, 0.85)
 		_delay = GHOST_DELAY
-
 	max_hp     = mx
 	current_hp = cur
 	queue_redraw()
@@ -52,10 +42,10 @@ func set_health(cur: int, mx: int) -> void:
 # ─── Loop ─────────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(BAR_W, BAR_H)
-	size = Vector2(BAR_W, BAR_H)
-	# Centraliza horizontalmente acima do personagem
-	position = Vector2(-BAR_W / 2.0, -44.0)
+	var total_h := BAR_H + GAP + MANA_H
+	custom_minimum_size = Vector2(BAR_W, total_h)
+	size                = Vector2(BAR_W, total_h)
+	position            = Vector2(-BAR_W / 2.0, -62.0)
 
 func _process(delta: float) -> void:
 	if _displayed <= float(current_hp) + 0.5:
@@ -64,8 +54,24 @@ func _process(delta: float) -> void:
 		_delay -= delta
 		return
 	_displayed = move_toward(_displayed, float(current_hp),
-							 float(max_hp) * GHOST_SPEED * delta)
+	                         float(max_hp) * GHOST_SPEED * delta)
 	queue_redraw()
+
+# ─── Helpers de desenho ───────────────────────────────────────────────────────
+
+func _sbox(color: Color, radius: int) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = color
+	s.set_corner_radius_all(radius)
+	return s
+
+func _sbox_border(color: Color, width: float, radius: int) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0, 0, 0, 0)     # centro transparente
+	s.set_border_width_all(int(width))
+	s.border_color = color
+	s.set_corner_radius_all(radius)
+	return s
 
 # ─── Desenho ──────────────────────────────────────────────────────────────────
 
@@ -73,42 +79,63 @@ func _draw() -> void:
 	var w := BAR_W
 	var h := BAR_H
 
-	# Fundo escuro
-	draw_rect(Rect2(0, 0, w, h), Color(0.08, 0.08, 0.08, 0.92))
+	# Fundo arredondado
+	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.92), RADIUS), Rect2(0, 0, w, h))
 
-	# Ghost bar (sombra do dano recente)
+	# Ghost bar
 	if _displayed > float(current_hp) + 0.5:
-		var cur_x := clampf(float(current_hp) / float(max_hp), 0.0, 1.0) * w
-		var ghost_x := clampf(_displayed / float(max_hp), 0.0, 1.0) * w
+		var cur_x   := clampf(float(current_hp) / float(max_hp), 0.0, 1.0) * w
+		var ghost_x := clampf(_displayed        / float(max_hp), 0.0, 1.0) * w
 		if ghost_x > cur_x:
-			draw_rect(Rect2(cur_x, 0, ghost_x - cur_x, h), _ghost_col)
+			draw_rect(Rect2(cur_x, 1, ghost_x - cur_x, h - 2), _ghost_col)
 
-	# Barra principal — verde → amarelo → vermelho
+	# Preenchimento HP com cantos arredondados à esquerda
 	var pct := clampf(float(current_hp) / float(max_hp), 0.0, 1.0)
-	var bar_col: Color
-	if pct > 0.50:
-		bar_col = Color(0.18, 0.78, 0.25)   # verde
-	elif pct > 0.25:
-		bar_col = Color(0.92, 0.78, 0.10)   # amarelo
-	else:
-		bar_col = Color(0.88, 0.18, 0.12)   # vermelho
-	draw_rect(Rect2(0, 0, pct * w, h), bar_col)
+	if pct > 0.0:
+		var bar_col: Color
+		if pct > 0.50:
+			bar_col = Color(0.18, 0.78, 0.25)
+		elif pct > 0.25:
+			bar_col = Color(0.92, 0.78, 0.10)
+		else:
+			bar_col = Color(0.88, 0.18, 0.12)
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = bar_col
+		fill.corner_radius_top_left    = RADIUS
+		fill.corner_radius_bottom_left = RADIUS
+		fill.corner_radius_top_right    = RADIUS if pct >= 0.99 else 0
+		fill.corner_radius_bottom_right = RADIUS if pct >= 0.99 else 0
+		draw_style_box(fill, Rect2(0, 0, pct * w, h))
 
-	# Divisórias de segmento
+	# Divisórias finas (dentro do contorno)
 	var n_segs := max_hp / SEG_HP
 	for i in range(1, n_segs + 1):
 		var seg_pct := float(i * SEG_HP) / float(max_hp)
 		if seg_pct >= 1.0:
 			break
 		var x := seg_pct * w
-		var milestone := (
-			abs(seg_pct - 0.25) < 0.005 or
-			abs(seg_pct - 0.50) < 0.005 or
-			abs(seg_pct - 0.75) < 0.005
-		)
-		var col   := Color(0, 0, 0, 0.90 if milestone else 0.50)
-		var thick := 2.5 if milestone else 1.0
-		draw_line(Vector2(x, 0.0), Vector2(x, h), col, thick)
+		draw_line(Vector2(x, 1.5), Vector2(x, h - 1.5), Color(0, 0, 0, 0.38), 1.0)
 
-	# Borda
-	draw_rect(Rect2(0, 0, w, h), Color(0, 0, 0, 0.75), false, 1.0)
+	# Marcos 25 / 50 / 75% — pretos, grossos
+	for mpct: float in [0.25, 0.50, 0.75]:
+		var x: float = mpct * w
+		draw_line(Vector2(x, 1.0), Vector2(x, h - 1.0), Color(0, 0, 0, 0.92), 3.0)
+
+	# Contorno arredondado
+	draw_style_box(_sbox_border(Color(0, 0, 0, 0.90), 2.0, RADIUS), Rect2(0, 0, w, h))
+
+	# ── Barra de mana ──────────────────────────────────────────────────────────
+	var my := h + GAP
+	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.88), RADIUS_MANA), Rect2(0, my, w, MANA_H))
+	draw_style_box(_sbox(Color(0.95, 0.80, 0.10, 0.90), RADIUS_MANA), Rect2(0, my, w, MANA_H))
+
+	var mn_segs := max_hp / SEG_HP
+	for i in range(1, mn_segs + 1):
+		var seg_pct := float(i * SEG_HP) / float(max_hp)
+		if seg_pct >= 1.0:
+			break
+		var x := seg_pct * w
+		draw_line(Vector2(x, my + 0.5), Vector2(x, my + MANA_H - 0.5),
+		          Color(0, 0, 0, 0.45), 1.0)
+
+	draw_style_box(_sbox_border(Color(0, 0, 0, 0.80), 1.0, RADIUS_MANA), Rect2(0, my, w, MANA_H))
