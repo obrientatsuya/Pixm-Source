@@ -108,6 +108,22 @@ impl GameLoopNode {
         self.collector.push(event);
     }
 
+    /// HP do herói local: retorna Vector2i(current, max).
+    /// Usado pelo GDScript para atualizar a barra de vida.
+    #[func]
+    pub fn get_hero_hp(&self) -> Vector2i {
+        use crate::sim::components::{Health, Owner};
+        use crate::core::types::PlayerId;
+
+        self.sim.as_ref()
+            .and_then(|sim| {
+                sim.world.query::<(&Health, &Owner)>().iter()
+                    .find(|(_, (_, o))| o.0 == PlayerId(0))
+                    .map(|(_, (hp, _))| Vector2i::new(hp.current, hp.max))
+            })
+            .unwrap_or(Vector2i::new(0, 1))
+    }
+
     /// Tick atual (para debug/UI).
     #[func]
     pub fn current_tick(&self) -> i64 {
