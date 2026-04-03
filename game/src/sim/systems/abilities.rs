@@ -8,7 +8,8 @@ use crate::core::events::{EventBus, DamageEvent, AbilityEvent};
 use crate::core::types::{Fixed, Vec2Fixed};
 use crate::sim::components::{
     AbilityEffect, AbilitySlots, AbilityCooldowns, PendingAbility,
-    Position, Health, Team, CrowdControl, CcKind, MoveTarget, Path,
+    Position, Velocity, Health, Team, CrowdControl, CcKind, MoveTarget, Path,
+    Projectile, ProjectileTarget,
 };
 
 /// Decrementa cooldowns de habilidades (1 tick por slot).
@@ -93,13 +94,18 @@ fn process_ability(world: &mut World, events: &mut EventBus, caster: Entity, pen
             let _ = world.remove_one::<MoveTarget>(caster);
             let _ = world.remove_one::<Path>(caster);
         }
-        AbilityEffect::Projectile { damage, .. } => {
-            // Fase 11: spawnar entidade de projétil
-            // Fallback: dano direto no inimigo mais próximo
-            let hit_r = Fixed::from_num(64);
-            if let Some(hit) = closest_enemy(world, target, hit_r, my_team) {
-                events.damage.emit(DamageEvent { source: caster, target: hit, amount: damage });
-            }
+        AbilityEffect::Projectile { speed, damage } => {
+            let dir = (target - caster_pos).normalize();
+            world.spawn((
+                Position(caster_pos),
+                Velocity(dir * speed),
+                Projectile {
+                    owner:  caster,
+                    damage,
+                    speed,
+                    target: ProjectileTarget::Point(target),
+                },
+            ));
         }
     }
 

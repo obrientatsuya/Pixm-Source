@@ -6,7 +6,7 @@
 use hecs::World;
 use crate::core::events::EventBus;
 use crate::sim::rng::DeterministicRng;
-use crate::sim::systems::{abilities, movement, combat, buffs};
+use crate::sim::systems::{abilities, movement, combat, buffs, projectiles};
 use crate::sim::pathfinding::{pathfinding_system, NavigationGrid};
 use crate::input::events::InputEvent;
 use net::rollback::prediction::RawInput;
@@ -54,17 +54,20 @@ impl SimWorld {
         // 6. Auto-attack → DamageEvents
         combat::auto_attack_system(&mut self.world, &mut self.rng, &mut self.events);
 
-        // 7. Resolve dano → DeathEvents
+        // 7. Projéteis: colisão + homing update
+        projectiles::projectile_system(&mut self.world, &mut self.events);
+
+        // 8. Resolve dano → DeathEvents
         combat::health_system(&mut self.world, &mut self.events);
 
-        // 8. Processa mortes → marca Dying
+        // 9. Processa mortes → marca Dying
         combat::death_system(&mut self.world, &mut self.events);
 
-        // 9. Buffs/CC
+        // 10. Buffs/CC
         buffs::crowd_control_system(&mut self.world);
         buffs::buff_system(&mut self.world, &mut self.events);
 
-        // 10. Remove entidades mortas
+        // 11. Remove entidades mortas (heróis + projéteis)
         combat::cleanup_system(&mut self.world);
 
         // 10. Drena eventos restantes (não carrega pro próximo tick)

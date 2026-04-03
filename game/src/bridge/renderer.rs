@@ -68,15 +68,22 @@ impl GameLoopNode {
     /// Chamar após start_match(), antes do primeiro frame.
     #[func]
     pub fn spawn_hero(&mut self, start_x: f32, start_y: f32) {
-        use crate::sim::components::{Position, Velocity, MoveSpeed, Owner};
+        use crate::sim::components::{
+            Position, Velocity, MoveSpeed, Owner, Health, Team,
+            AbilitySlots, AbilityCooldowns,
+        };
         use crate::core::types::{PlayerId, Vec2Fixed};
 
         let Some(ref mut sim) = self.sim else { return };
         sim.world.spawn((
             Position(Vec2Fixed::new(Fixed::from_num(start_x), Fixed::from_num(start_y))),
             Velocity::default(),
-            MoveSpeed(Fixed::from_num(3.0)), // 3 unid/tick = 180 unid/s @ 60Hz
+            MoveSpeed(Fixed::from_num(3.0)),
             Owner(PlayerId(0)),
+            Health::new(500),
+            Team(0),
+            AbilitySlots::default(),
+            AbilityCooldowns::default(),
         ));
     }
 
