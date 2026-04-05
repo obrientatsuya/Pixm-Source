@@ -149,8 +149,8 @@ pub fn coast_system(world: &mut World) {
         .collect();
     for (e, old_vel) in coasting {
         if let Ok(mut v) = world.get::<&mut Velocity>(e) {
-            v.0 = old_vel * Fixed::from_num(0.88);
-            if v.0.length_sq() < Fixed::from_num(0.0004) { v.0 = Vec2Fixed::ZERO; }
+            v.0 = old_vel * Fixed::from_num(0.94);
+            if v.0.length_sq() < Fixed::from_num(0.00005) { v.0 = Vec2Fixed::ZERO; }
         }
     }
 }
