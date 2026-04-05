@@ -5,12 +5,15 @@
 /// Sem Path: movimento direto ao MoveTarget (fallback ou entidades simples).
 
 use hecs::World;
-use crate::core::types::Vec2Fixed;
+use crate::core::types::{Fixed, Vec2Fixed};
 use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed, Path,
                               CrowdControl, CcKind};
 
 /// Resolve MoveTarget/Path → Velocity.
 /// Entidades com Root/Stun/Knockup ficam paradas.
+///
+/// Loop de budget: consome waypoints até esgotar `speed` unidades por tick.
+/// Evita o problema de "um waypoint por tick" quando waypoints são densos.
 pub fn move_target_system(world: &mut World) {
     let rooted: Vec<hecs::Entity> = world
         .query::<&CrowdControl>()
@@ -24,32 +27,53 @@ pub fn move_target_system(world: &mut World) {
     for (entity, (pos, vel, target, speed, maybe_path)) in world
         .query_mut::<(&mut Position, &mut Velocity, &MoveTarget, &MoveSpeed, Option<&mut Path>)>()
     {
-        if rooted.contains(&entity) {
-            vel.0 = Vec2Fixed::ZERO;
-            continue;
-        }
+        vel.0 = Vec2Fixed::ZERO; // padrão: sem movimento
 
-        // Click-to-move: se há Path usa waypoint atual, senão vai direto
-        let effective = match maybe_path.as_ref().and_then(|p| p.current_wp()) {
-            Some(wp) => wp,
-            None     => target.0,
-        };
+        if rooted.contains(&entity) { continue; }
 
-        let dir     = effective - pos.0;
-        let dist_sq = dir.length_sq();
-        let arr_sq  = speed.0 * speed.0; // chegou se dist < 1 tick de movimento
+        if let Some(path) = maybe_path {
+            // Consome waypoints usando budget de distância (speed unidades/tick).
+            // Após snaps intermediários, o budget restante vira velocidade
+            // que movement_system aplica → total = speed unidades no tick.
+            let mut budget = speed.0;
 
-        if dist_sq <= arr_sq {
-            pos.0 = effective;   // snap na posição exata — sem offset residual
-            vel.0 = Vec2Fixed::ZERO;
-            if let Some(path) = maybe_path {
-                path.advance();
-                if path.exhausted() {
+            loop {
+                let Some(wp) = path.current_wp() else {
                     path_exhausted.push(entity);
+                    break;
+                };
+                let dir  = wp - pos.0;
+                let dist = dir.length();
+
+                if dist == Fixed::ZERO {
+                    // waypoint sobre a entidade — avança sem consumir budget
+                    path.advance();
+                    continue;
+                }
+
+                if dist <= budget {
+                    // Snap até este waypoint e continua com o budget restante
+                    pos.0   = wp;
+                    budget -= dist;
+                    path.advance();
+                    if budget <= Fixed::ZERO { break; }
+                } else {
+                    // Move com o budget restante em direção ao próximo waypoint
+                    vel.0 = dir.normalize() * budget;
+                    break;
                 }
             }
         } else {
-            vel.0 = dir.normalize() * speed.0;
+            // Sem Path: movimento direto ao MoveTarget
+            let dir     = target.0 - pos.0;
+            let dist_sq = dir.length_sq();
+            let arr_sq  = speed.0 * speed.0;
+
+            if dist_sq <= arr_sq {
+                pos.0 = target.0;
+            } else {
+                vel.0 = dir.normalize() * speed.0;
+            }
         }
     }
 

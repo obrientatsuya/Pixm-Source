@@ -64,6 +64,16 @@ impl Vec2Fixed {
         }
     }
 
+    /// Comprimento do vetor. Preferir length_sq para comparações (evita sqrt).
+    pub fn length(&self) -> Fixed {
+        let sq = self.length_sq();
+        if sq == Fixed::ZERO { return Fixed::ZERO; }
+        let sq_raw = sq.to_bits();
+        if sq_raw <= 0 { return Fixed::ZERO; }
+        let extended = (sq_raw as u128) << 32;
+        Fixed::from_bits(isqrt_u128(extended) as i64)
+    }
+
     /// Interpolação linear (alpha: 0..1 em Fixed).
     pub fn lerp(&self, other: Vec2Fixed, alpha: Fixed) -> Self {
         Self {

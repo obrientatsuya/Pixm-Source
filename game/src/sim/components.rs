@@ -115,6 +115,10 @@ pub struct AiTarget(pub hecs::Entity);
 #[derive(Debug, Clone, Copy)]
 pub struct WaypointIndex(pub u8);
 
+/// Lane à qual este minion pertence — índice em LanePaths.
+#[derive(Debug, Clone, Copy)]
+pub struct LaneId(pub u8);
+
 // ─── Projéteis ───────────────────────────────────────────────────────────────
 
 /// Dados de um projétil em voo.

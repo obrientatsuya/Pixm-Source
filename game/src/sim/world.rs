@@ -6,28 +6,31 @@
 use hecs::World;
 use crate::core::events::EventBus;
 use crate::sim::rng::DeterministicRng;
-use crate::sim::systems::{abilities, movement, combat, buffs, projectiles};
+use crate::sim::systems::{abilities, ai, movement, combat, buffs, projectiles};
+use crate::sim::systems::ai::LanePaths;
 use crate::sim::pathfinding::{pathfinding_system, NavigationGrid};
 use crate::input::events::InputEvent;
 use net::rollback::prediction::RawInput;
 use net::rollback::session::Simulation;
 
 pub struct SimWorld {
-    pub world:    World,
-    pub events:   EventBus,
-    pub rng:      DeterministicRng,
-    pub tick:     u64,
-    pub nav_grid: NavigationGrid,
+    pub world:      World,
+    pub events:     EventBus,
+    pub rng:        DeterministicRng,
+    pub tick:       u64,
+    pub nav_grid:   NavigationGrid,
+    pub lane_paths: LanePaths,
 }
 
 impl SimWorld {
     pub fn new(rng_seed: u64) -> Self {
         Self {
-            world:    World::new(),
-            events:   EventBus::new(),
-            rng:      DeterministicRng::new(rng_seed),
-            tick:     0,
-            nav_grid: NavigationGrid::default_128(),
+            world:      World::new(),
+            events:     EventBus::new(),
+            rng:        DeterministicRng::new(rng_seed),
+            tick:       0,
+            nav_grid:   NavigationGrid::default_128(),
+            lane_paths: LanePaths::default(),
         }
     }
 
@@ -39,7 +42,11 @@ impl SimWorld {
         // 1. Aplica inputs → componentes (MoveTarget, abilities, etc.)
         self.apply_inputs(inputs);
 
-        // 2. Pathfinding: MoveTarget → Path de waypoints (só quando muda)
+        // 2. IA: atualiza aggro e define MoveTarget para minions
+        ai::ai_aggro_system(&mut self.world);
+        ai::ai_waypoint_system(&mut self.world, &self.lane_paths);
+
+        // 3. Pathfinding: MoveTarget → Path de waypoints (só quando muda)
         pathfinding_system(&mut self.world, &self.nav_grid);
 
         // 3. Movimento
@@ -166,7 +173,8 @@ impl Clone for SimWorld {
         // Estado da sim clona via serialização para garantir equivalência
         let data = self.serialize();
         let mut s = Self::deserialize(&data);
-        s.nav_grid = self.nav_grid.clone();
+        s.nav_grid   = self.nav_grid.clone();
+        s.lane_paths = self.lane_paths.clone();
         s
     }
 }

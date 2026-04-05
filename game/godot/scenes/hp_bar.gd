@@ -1,4 +1,4 @@
-## hp_bar.gd — barra de HP estilo LoL com cantos arredondados.
+## hp_bar.gd — barra de HP estilo LoL.
 
 extends Control
 
@@ -7,8 +7,6 @@ const BAR_W       := 80.0
 const BAR_H       := 8.0
 const MANA_H      := 3.0
 const GAP         := 2.0
-const RADIUS      := 3        # arredondamento HP
-const RADIUS_MANA := 1        # arredondamento mana
 const GHOST_DELAY := 0.45
 const GHOST_SPEED := 0.30
 
@@ -54,23 +52,21 @@ func _process(delta: float) -> void:
 		_delay -= delta
 		return
 	_displayed = move_toward(_displayed, float(current_hp),
-	                         float(max_hp) * GHOST_SPEED * delta)
+							 float(max_hp) * GHOST_SPEED * delta)
 	queue_redraw()
 
 # ─── Helpers de desenho ───────────────────────────────────────────────────────
 
-func _sbox(color: Color, radius: int) -> StyleBoxFlat:
+func _sbox(color: Color) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = color
-	s.set_corner_radius_all(radius)
 	return s
 
-func _sbox_border(color: Color, width: float, radius: int) -> StyleBoxFlat:
+func _sbox_border(color: Color, width: float) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0, 0, 0, 0)     # centro transparente
+	s.bg_color = Color(0, 0, 0, 0)
 	s.set_border_width_all(int(width))
 	s.border_color = color
-	s.set_corner_radius_all(radius)
 	return s
 
 # ─── Desenho ──────────────────────────────────────────────────────────────────
@@ -79,8 +75,8 @@ func _draw() -> void:
 	var w := BAR_W
 	var h := BAR_H
 
-	# Fundo arredondado
-	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.92), RADIUS), Rect2(0, 0, w, h))
+	# Fundo
+	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.92)), Rect2(0, 0, w, h))
 
 	# Ghost bar
 	if _displayed > float(current_hp) + 0.5:
@@ -89,7 +85,7 @@ func _draw() -> void:
 		if ghost_x > cur_x:
 			draw_rect(Rect2(cur_x, 1, ghost_x - cur_x, h - 2), _ghost_col)
 
-	# Preenchimento HP com cantos arredondados à esquerda
+	# Preenchimento HP
 	var pct := clampf(float(current_hp) / float(max_hp), 0.0, 1.0)
 	if pct > 0.0:
 		var bar_col: Color
@@ -99,13 +95,7 @@ func _draw() -> void:
 			bar_col = Color(0.92, 0.78, 0.10)
 		else:
 			bar_col = Color(0.88, 0.18, 0.12)
-		var fill := StyleBoxFlat.new()
-		fill.bg_color = bar_col
-		fill.corner_radius_top_left    = RADIUS
-		fill.corner_radius_bottom_left = RADIUS
-		fill.corner_radius_top_right    = RADIUS if pct >= 0.99 else 0
-		fill.corner_radius_bottom_right = RADIUS if pct >= 0.99 else 0
-		draw_style_box(fill, Rect2(0, 0, pct * w, h))
+		draw_style_box(_sbox(bar_col), Rect2(0, 0, pct * w, h))
 
 	# Divisórias finas (dentro do contorno)
 	var n_segs := max_hp / SEG_HP
@@ -121,13 +111,13 @@ func _draw() -> void:
 		var x: float = mpct * w
 		draw_line(Vector2(x, 1.0), Vector2(x, h - 1.0), Color(0, 0, 0, 0.92), 3.0)
 
-	# Contorno arredondado
-	draw_style_box(_sbox_border(Color(0, 0, 0, 0.90), 2.0, RADIUS), Rect2(0, 0, w, h))
+	# Contorno
+	draw_style_box(_sbox_border(Color(0, 0, 0, 0.90), 2.0), Rect2(0, 0, w, h))
 
 	# ── Barra de mana ──────────────────────────────────────────────────────────
 	var my := h + GAP
-	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.88), RADIUS_MANA), Rect2(0, my, w, MANA_H))
-	draw_style_box(_sbox(Color(0.95, 0.80, 0.10, 0.90), RADIUS_MANA), Rect2(0, my, w, MANA_H))
+	draw_style_box(_sbox(Color(0.08, 0.08, 0.08, 0.88)), Rect2(0, my, w, MANA_H))
+	draw_style_box(_sbox(Color(0.95, 0.80, 0.10, 0.90)), Rect2(0, my, w, MANA_H))
 
 	var mn_segs := max_hp / SEG_HP
 	for i in range(1, mn_segs + 1):
@@ -136,6 +126,6 @@ func _draw() -> void:
 			break
 		var x := seg_pct * w
 		draw_line(Vector2(x, my + 0.5), Vector2(x, my + MANA_H - 0.5),
-		          Color(0, 0, 0, 0.45), 1.0)
+				  Color(0, 0, 0, 0.45), 1.0)
 
-	draw_style_box(_sbox_border(Color(0, 0, 0, 0.80), 1.0, RADIUS_MANA), Rect2(0, my, w, MANA_H))
+	draw_style_box(_sbox_border(Color(0, 0, 0, 0.80), 1.0), Rect2(0, my, w, MANA_H))

@@ -35,6 +35,11 @@ pub fn pathfinding_system(world: &mut World, nav: &NavigationGrid) {
 }
 
 fn compute_path(nav: &NavigationGrid, start: Vec2Fixed, goal: Vec2Fixed) -> Path {
+    // Linha de visão livre → caminho direto, sem passar por centros de célula.
+    if line_of_sight(nav, start, goal) {
+        return Path { waypoints: vec![goal], current: 0, destination: goal };
+    }
+
     let sc = nav.world_to_cell(start);
     let gc = nav.world_to_cell(goal);
 
@@ -50,13 +55,33 @@ fn compute_path(nav: &NavigationGrid, start: Vec2Fixed, goal: Vec2Fixed) -> Path
         .map(|&(x, y)| nav.cell_to_world(x, y))
         .collect();
 
-    // Substitui último waypoint pelo destino exato (evita parar no centro da célula)
     match waypoints.last_mut() {
         Some(last) => *last = goal,
-        None       => waypoints.push(goal), // start == goal célula ou sem caminho → direto
+        None       => waypoints.push(goal),
     }
 
     Path { waypoints, current: 0, destination: goal }
+}
+
+/// Verifica linha de visão via Bresenham — true se nenhuma célula bloqueada.
+fn line_of_sight(nav: &NavigationGrid, from: Vec2Fixed, to: Vec2Fixed) -> bool {
+    let (mut x, mut y) = nav.world_to_cell(from);
+    let (x1,   y1)    = nav.world_to_cell(to);
+
+    let dx =  (x1 - x).abs();
+    let dy =  (y1 - y).abs();
+    let sx = if x1 > x { 1 } else { -1 };
+    let sy = if y1 > y { 1 } else { -1 };
+    let mut err = dx - dy;
+
+    loop {
+        if nav.is_blocked(x, y) { return false; }
+        if x == x1 && y == y1  { break; }
+        let e2 = 2 * err;
+        if e2 > -dy { err -= dy; x += sx; }
+        if e2 <  dx { err += dx; y += sy; }
+    }
+    true
 }
 
 #[cfg(test)]
