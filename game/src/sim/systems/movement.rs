@@ -124,10 +124,12 @@ fn blend(old: Vec2Fixed, desired: Vec2Fixed, max_speed: Fixed, p: AccelProfile) 
     if desired == Vec2Fixed::ZERO { return Vec2Fixed::ZERO; }
     let dot = old.dot(desired);
     let max_sq = max_speed * max_speed;
-    // Slide ativo quando acima de ~20% da velocidade máxima e direção inverteu.
+    // Slide quando acima de ~20% da vel máxima e direção inverteu.
+    // Fórmula: lerp(old→desired) com peso momentum no old.
+    // Resultado: hero continua na direção antiga (overshoot visível).
     let threshold = max_sq * Fixed::from_num(0.04);
     if dot < Fixed::ZERO && old.length_sq() > threshold {
-        let blended = desired + old * p.momentum;
+        let blended = old * p.momentum + desired * (Fixed::ONE - p.momentum);
         let len = blended.length();
         let cap = max_speed * Fixed::from_num(1.3);
         if len > cap { blended * (cap / len) } else { blended }
@@ -147,7 +149,7 @@ pub fn coast_system(world: &mut World) {
         .collect();
     for (e, old_vel) in coasting {
         if let Ok(mut v) = world.get::<&mut Velocity>(e) {
-            v.0 = old_vel * Fixed::from_num(0.78);
+            v.0 = old_vel * Fixed::from_num(0.88);
             if v.0.length_sq() < Fixed::from_num(0.0004) { v.0 = Vec2Fixed::ZERO; }
         }
     }
