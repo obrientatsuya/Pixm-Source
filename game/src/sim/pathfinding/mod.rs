@@ -14,15 +14,19 @@ use crate::core::types::Vec2Fixed;
 use crate::sim::components::{Position, MoveTarget, Path};
 
 /// Computa Path para cada entidade com MoveTarget novo ou modificado.
+/// Também recomputa se o herói perdeu LOS para o waypoint atual (saiu da rota por wall-slide).
 pub fn pathfinding_system(world: &mut World, nav: &NavigationGrid) {
-    // Entidades que precisam de novo caminho
     let to_compute: Vec<(hecs::Entity, Vec2Fixed, Vec2Fixed)> = world
         .query::<(&Position, &MoveTarget, Option<&Path>)>()
         .iter()
         .filter_map(|(e, (pos, target, maybe_path))| {
             let stale = match maybe_path {
                 None    => true,
-                Some(p) => p.destination != target.0,
+                Some(p) => {
+                    p.destination != target.0
+                    // Recomputa se waypoint atual ficou inacessível (wall-slide desviou herói)
+                    || p.current_wp().map_or(false, |wp| !line_of_sight(nav, pos.0, wp))
+                }
             };
             if stale { Some((e, pos.0, target.0)) } else { None }
         })
@@ -57,16 +61,39 @@ fn compute_path(nav: &NavigationGrid, start: Vec2Fixed, goal: Vec2Fixed) -> Path
         gc,
     );
 
-    let mut waypoints: Vec<Vec2Fixed> = cells.iter()
-        .map(|&(x, y)| nav.cell_to_world(x, y))
-        .collect();
-
-    match waypoints.last_mut() {
-        Some(last) => *last = goal,
-        None       => {},  // A* sem caminho — path vazio, entidade fica parada
+    if cells.is_empty() {
+        return Path { waypoints: vec![], current: 0, destination: goal };
     }
 
+    // Converte células → posições world; substitui último pelo goal exato
+    let mut raw: Vec<Vec2Fixed> = cells.iter()
+        .map(|&(x, y)| nav.cell_to_world(x, y))
+        .collect();
+    if let Some(last) = raw.last_mut() { *last = goal; }
+
+    // String-pulling: mantém só waypoints onde a LOS muda de direção.
+    // Reduz de ~N centros de célula para poucos pontos de virada.
+    let waypoints = pull_string(nav, start, raw);
+
     Path { waypoints, current: 0, destination: goal }
+}
+
+/// Reduz waypoints ao mínimo: só mantém pontos onde a LOS muda.
+/// Greedy: do ponto atual, avança para o mais distante com LOS direta.
+fn pull_string(nav: &NavigationGrid, start: Vec2Fixed, wps: Vec<Vec2Fixed>) -> Vec<Vec2Fixed> {
+    if wps.len() <= 1 { return wps; }
+    let mut result = Vec::new();
+    let mut from   = start;
+    let mut i      = 0;
+    while i < wps.len() {
+        // Encontra o waypoint mais distante com LOS a partir de `from`
+        let mut j = wps.len() - 1;
+        while j > i && !line_of_sight(nav, from, wps[j]) { j -= 1; }
+        result.push(wps[j]);
+        from = wps[j];
+        i = j + 1;
+    }
+    result
 }
 
 /// Verifica linha de visão via Bresenham — true se nenhuma célula bloqueada.
