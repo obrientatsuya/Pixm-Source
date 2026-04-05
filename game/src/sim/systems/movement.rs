@@ -123,14 +123,11 @@ pub fn move_target_system(world: &mut World) {
 fn blend(old: Vec2Fixed, desired: Vec2Fixed, max_speed: Fixed, p: AccelProfile) -> Vec2Fixed {
     if desired == Vec2Fixed::ZERO { return Vec2Fixed::ZERO; }
     let dot = old.dot(desired);
-    if dot < Fixed::ZERO && old.length_sq() > Fixed::from_num(0.002) {
-        // Momentum proporcional à vel atual² / max² (sem sqrt, determinístico)
-        let spd_sq   = old.length_sq();
-        let max_sq   = max_speed * max_speed;
-        let ratio_sq = if max_sq > Fixed::ZERO { (spd_sq / max_sq).min(Fixed::ONE) }
-                       else { Fixed::ZERO };
-        let effective = p.momentum * ratio_sq;
-        let blended = desired + old * effective;
+    let max_sq = max_speed * max_speed;
+    // Slide ativo quando acima de ~20% da velocidade máxima e direção inverteu.
+    let threshold = max_sq * Fixed::from_num(0.04);
+    if dot < Fixed::ZERO && old.length_sq() > threshold {
+        let blended = desired + old * p.momentum;
         let len = blended.length();
         let cap = max_speed * Fixed::from_num(1.3);
         if len > cap { blended * (cap / len) } else { blended }
