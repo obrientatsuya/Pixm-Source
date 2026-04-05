@@ -206,6 +206,20 @@ pub struct PendingAbility {
     pub target_y: Fixed,
 }
 
+// ─── Movimento avançado ───────────────────────────────────────────────────────
+
+/// Perfil de aceleração/momentum — movimento estilo Apex/Valorant.
+///
+/// accel:      fração de (desired − vel) por tick ao acelerar  (0..1, menor = mais lerdo).
+/// decel_zone: dist em sim-units antes do destino para começar a frear.
+/// momentum:   fração da vel antiga preservada em mudança brusca de direção (0..1).
+#[derive(Debug, Clone, Copy)]
+pub struct AccelProfile {
+    pub accel:      Fixed,
+    pub decel_zone: Fixed,
+    pub momentum:   Fixed,
+}
+
 // ─── Marcadores (zero dados — presença = propriedade) ────────────────────────
 
 /// Marcador: entidade será removida ao fim do tick.

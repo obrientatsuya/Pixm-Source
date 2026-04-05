@@ -74,6 +74,11 @@ impl Vec2Fixed {
         Fixed::from_bits(isqrt_u128(extended) as i64)
     }
 
+    /// Produto escalar.
+    pub fn dot(&self, other: Vec2Fixed) -> Fixed {
+        self.x * other.x + self.y * other.y
+    }
+
     /// Interpolação linear (alpha: 0..1 em Fixed).
     pub fn lerp(&self, other: Vec2Fixed, alpha: Fixed) -> Self {
         Self {

@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://m0sito2om1fs"]
+
+[ext_resource type="Script" uid="uid://c2lorge02nqw5" path="res://scenes/main.gd" id="1_elqb8"]
+[ext_resource type="Script" uid="uid://bmb64cf1mx06g" path="res://scenes/hp_bar.gd" id="2_rvslj"]
+
+[node name="Main" type="Node2D" unique_id=1107153833]
+script = ExtResource("1_elqb8")
+
+[node name="GameLoopNode" type="GameLoopNode" parent="." unique_id=1527428308]
+
+[node name="Hero" type="Node2D" parent="GameLoopNode" unique_id=871772963]
+position = Vector2(640, 360)
+
+[node name="Polygon2D" type="Polygon2D" parent="GameLoopNode/Hero" unique_id=338506640]
+color = Color(0.08381996, 0.4858297, 0.40893307, 1)
+polygon = PackedVector2Array(-16, -32, 16, -32, 16, 0, -16, 0)
+
+[node name="HPBar" type="Control" parent="GameLoopNode/Hero" unique_id=568214994]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("2_rvslj")

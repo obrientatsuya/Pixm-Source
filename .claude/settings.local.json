@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth:*)",
+      "Bash(git --version)",
+      "Bash(curl --version)",
+      "Bash(rm -rf rust/game_logic rust/net rust/rollback rust/Cargo.toml godot/scenes godot/assets godot/addons godot/project.godot)",
+      "Bash(rmdir rust:*)",
+      "Bash(cargo build:*)",
+      "Bash(~/.cargo/bin/cargo build:*)",
+      "Bash(~/.cargo/bin/cargo test:*)",
+      "Bash(cargo test:*)",
+      "Bash(taskkill /IM \"Godot*\" /F)",
+      "Bash(taskkill /IM \"godot*\" /F)"
+    ]
+  }
+}

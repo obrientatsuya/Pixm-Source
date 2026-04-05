@@ -16,12 +16,12 @@ pub fn spawn_dummy(world: &mut World, pos: Vec2Fixed, team: u8) -> hecs::Entity 
 }
 
 /// Minion com IA de lane: movimento, combate, waypoints.
-pub fn spawn_minion(world: &mut World, pos: Vec2Fixed, team: u8, lane_id: u8) -> hecs::Entity {
+pub fn spawn_minion(world: &mut World, pos: Vec2Fixed, team: u8, lane_id: u8, speed: Fixed) -> hecs::Entity {
     world.spawn((
         Position(pos),
         PrevPosition(pos),
         Velocity::default(),
-        MoveSpeed(Fixed::from_num(1.5)),
+        MoveSpeed(speed),
         Health::new(200),
         Team(team),
         AttackRange(Fixed::from_num(5)),

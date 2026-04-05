@@ -82,7 +82,12 @@ impl GameLoopNode {
         let pos = Vec2Fixed::new(Fixed::from_num(start_x), Fixed::from_num(start_y));
         sim.world.spawn((
             Position(pos), PrevPosition(pos), Velocity::default(),
-            MoveSpeed(Fixed::from_num(3.0)),
+            MoveSpeed(Fixed::from_num(3.0 / self.render_scale as f64)),
+            crate::sim::components::AccelProfile {
+                accel:      Fixed::from_num(0.12), // ~8 ticks p/ vel máxima (~130ms)
+                decel_zone: Fixed::from_num(10.0), // últimos 80px freiam gradualmente
+                momentum:   Fixed::from_num(0.72), // 72% preservado em virada
+            },
             Owner(PlayerId(0)), Health::new(500), Team(0),
             crate::sim::components::AbilitySlots::default(),
             crate::sim::components::AbilityCooldowns::default(),
@@ -103,7 +108,8 @@ impl GameLoopNode {
     pub fn spawn_minion(&mut self, x: f32, y: f32, lane_id: i32) -> i64 {
         let Some(ref mut sim) = self.sim else { return -1 };
         let pos = Vec2Fixed::new(Fixed::from_num(x), Fixed::from_num(y));
-        let e = spawn::spawn_minion(&mut sim.world, pos, 0, lane_id as u8);
+        let speed = crate::core::types::Fixed::from_num(1.5 / self.render_scale as f64);
+        let e = spawn::spawn_minion(&mut sim.world, pos, 0, lane_id as u8, speed);
         e.id() as i64
     }
 
@@ -163,6 +169,32 @@ impl GameLoopNode {
                     .map(|(_, (hp, _))| Vector2i::new(hp.current, hp.max))
             })
             .unwrap_or(Vector2i::new(0, 1))
+    }
+
+    /// Retorna (current_hp, max_hp) de uma entidade por entity_id.
+    #[func]
+    pub fn get_entity_hp(&self, entity_id: i64) -> Vector2i {
+        use crate::sim::components::Health;
+        let eid = entity_id as u32;
+        self.sim.as_ref()
+            .and_then(|sim| {
+                sim.world.query::<&Health>().iter()
+                    .find(|(e, _)| e.id() == eid)
+                    .map(|(_, hp)| Vector2i::new(hp.current, hp.max))
+            })
+            .unwrap_or(Vector2i::new(0, 1))
+    }
+
+    /// Posição sim-space (unidades sim, sem render_scale) de qualquer entidade.
+    #[func]
+    pub fn get_entity_pos(&self, entity_id: i64) -> Vector2 {
+        use crate::sim::components::Position;
+        let eid = entity_id as u32;
+        self.sim.as_ref().and_then(|s| {
+            s.world.query::<&Position>().iter()
+                .find(|(e, _)| e.id() == eid)
+                .map(|(_, p)| Vector2::new(p.0.x.to_num(), p.0.y.to_num()))
+        }).unwrap_or_default()
     }
 
     #[func]

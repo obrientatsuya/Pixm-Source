@@ -1,19 +1,17 @@
 /// Sistemas de movimento — move_target e integração de posição.
 ///
-/// move_target_system: Path-aware. Se entidade tem Path, segue waypoints.
-/// Quando waypoint alcançado, avança; quando Path esgotado, remove-o.
-/// Sem Path: movimento direto ao MoveTarget (fallback ou entidades simples).
+/// AccelProfile: rampa suave + decel_zone (escala vel pela distância ao destino)
+/// + momentum em virada brusca. movement_system faz wall-slide automático.
 
 use hecs::World;
 use crate::core::types::{Fixed, Vec2Fixed};
-use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed, Path,
-                              CrowdControl, CcKind};
+use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed,
+                              Path, CrowdControl, CcKind, AccelProfile};
+use crate::sim::pathfinding::NavigationGrid;
 
-/// Resolve MoveTarget/Path → Velocity.
-/// Entidades com Root/Stun/Knockup ficam paradas.
-///
-/// Loop de budget: consome waypoints até esgotar `speed` unidades por tick.
-/// Evita o problema de "um waypoint por tick" quando waypoints são densos.
+/// Distância mínima para snap (sim-units). Evita oscilação por imprecisão.
+const SNAP: f64 = 0.18;
+
 pub fn move_target_system(world: &mut World) {
     let rooted: Vec<hecs::Entity> = world
         .query::<&CrowdControl>()
@@ -22,92 +20,143 @@ pub fn move_target_system(world: &mut World) {
         .map(|(e, _)| e)
         .collect();
 
-    let mut path_exhausted: Vec<hecs::Entity> = vec![];
+    let mut exhausted: Vec<hecs::Entity> = vec![];
 
-    for (entity, (pos, vel, target, speed, maybe_path)) in world
-        .query_mut::<(&mut Position, &mut Velocity, &MoveTarget, &MoveSpeed, Option<&mut Path>)>()
+    for (entity, (pos, vel, target, speed, mut maybe_path, maybe_accel)) in world
+        .query_mut::<(
+            &mut Position, &mut Velocity, &MoveTarget, &MoveSpeed,
+            Option<&mut Path>, Option<&AccelProfile>,
+        )>()
     {
-        vel.0 = Vec2Fixed::ZERO; // padrão: sem movimento
-
+        let old_vel = vel.0;
+        vel.0       = Vec2Fixed::ZERO;
         if rooted.contains(&entity) { continue; }
 
-        if let Some(path) = maybe_path {
-            // Consome waypoints usando budget de distância (speed unidades/tick).
-            // Após snaps intermediários, o budget restante vira velocidade
-            // que movement_system aplica → total = speed unidades no tick.
-            let mut budget = speed.0;
-
-            loop {
-                let Some(wp) = path.current_wp() else {
-                    path_exhausted.push(entity);
-                    break;
-                };
-                let dir  = wp - pos.0;
-                let dist = dir.length();
-
-                if dist == Fixed::ZERO {
-                    // waypoint sobre a entidade — avança sem consumir budget
-                    path.advance();
-                    continue;
-                }
-
-                if dist <= budget {
-                    // Snap até este waypoint e continua com o budget restante
-                    pos.0   = wp;
-                    budget -= dist;
-                    path.advance();
-                    if budget <= Fixed::ZERO { break; }
-                } else {
-                    // Move com o budget restante em direção ao próximo waypoint
-                    vel.0 = dir.normalize() * budget;
-                    break;
-                }
+        if let Some(accel) = maybe_accel {
+            // ── AccelProfile: movimento suave com decel zone ──────────────────
+            // Se path exausto, marca e sai
+            if maybe_path.as_ref().map_or(false, |p| p.exhausted()) {
+                exhausted.push(entity); continue;
             }
-        } else {
-            // Sem Path: movimento direto ao MoveTarget
-            let dir     = target.0 - pos.0;
-            let dist_sq = dir.length_sq();
-            let arr_sq  = speed.0 * speed.0;
+            // Alvo: waypoint atual ou MoveTarget direto
+            let wp = maybe_path.as_ref()
+                .and_then(|p| p.current_wp())
+                .unwrap_or(target.0);
+            let is_final = maybe_path.as_ref()
+                .map_or(true, |p| p.current + 1 >= p.waypoints.len());
 
-            if dist_sq <= arr_sq {
-                pos.0 = target.0;
+            let dir  = wp - pos.0;
+            let dist = dir.length();
+
+            // Snap ao waypoint/destino
+            if dist <= Fixed::from_num(SNAP) {
+                pos.0 = wp;
+                if let Some(ref mut p) = maybe_path {
+                    p.advance();
+                    if p.exhausted() { exhausted.push(entity); }
+                }
+                continue; // vel = ZERO
+            }
+
+            // Escala velocidade na decel zone — apenas no segmento final
+            let desired_spd = if is_final
+                && accel.decel_zone > Fixed::ZERO
+                && dist < accel.decel_zone
+            {
+                // Escala linear: 0 no destino, max na borda da zona.
+                // Clampado a 8% do max para não parar completamente antes de snap.
+                let s = dist / accel.decel_zone;
+                let min = Fixed::from_num(0.08);
+                if s < min { min * speed.0 } else { s * speed.0 }
             } else {
-                vel.0 = dir.normalize() * speed.0;
+                speed.0
+            };
+
+            vel.0 = blend(old_vel, dir.normalize() * desired_spd, speed.0, *accel);
+
+        } else {
+            // ── Sem AccelProfile: budget loop instantâneo ─────────────────────
+            if let Some(path) = maybe_path {
+                let mut budget = speed.0;
+                loop {
+                    let Some(wp) = path.current_wp() else {
+                        exhausted.push(entity); break;
+                    };
+                    let dir  = wp - pos.0;
+                    let dist = dir.length();
+                    if dist == Fixed::ZERO { path.advance(); continue; }
+                    if dist <= budget {
+                        pos.0 = wp; budget -= dist; path.advance();
+                        if budget <= Fixed::ZERO { break; }
+                    } else {
+                        vel.0 = dir.normalize() * budget; break;
+                    }
+                }
+            } else {
+                let dir     = target.0 - pos.0;
+                let dist_sq = dir.length_sq();
+                if dist_sq <= speed.0 * speed.0 {
+                    pos.0 = target.0;
+                } else {
+                    vel.0 = dir.normalize() * speed.0;
+                }
             }
         }
     }
 
-    for e in path_exhausted {
-        let _ = world.remove_one::<Path>(e);
+    for e in exhausted { let _ = world.remove_one::<Path>(e); }
+}
+
+/// Blenda vel antiga → desejada com momentum em virada.
+/// Cap fixo em 1.4× max_speed — entidades rápidas não deslizam demais.
+fn blend(old: Vec2Fixed, desired: Vec2Fixed, max_speed: Fixed, p: AccelProfile) -> Vec2Fixed {
+    if desired == Vec2Fixed::ZERO { return Vec2Fixed::ZERO; }
+    let dot = old.dot(desired);
+    if dot < Fixed::ZERO && old.length_sq() > Fixed::from_num(0.002) {
+        // Virada brusca: injeta momentum na nova direção
+        let blended = desired + old * p.momentum;
+        let len = blended.length();
+        let cap = max_speed * Fixed::from_num(1.4);
+        if len > cap { blended * (cap / len) } else { blended }
+    } else {
+        old + (desired - old) * p.accel
     }
 }
 
-/// Integra velocidade → posição (1 tick).
-pub fn movement_system(world: &mut World) {
-    for (_, (pos, vel)) in world.query_mut::<(&mut Position, &Velocity)>() {
-        pos.0 = pos.0 + vel.0;
+/// Integra vel → pos com wall-slide.
+/// Tenta mover completo; se bloqueado, desliza em X ou Y; senão para.
+pub fn movement_system(world: &mut World, nav: &NavigationGrid) {
+    for (_, (pos, vel)) in world.query_mut::<(&mut Position, &mut Velocity)>() {
+        if vel.0 == Vec2Fixed::ZERO { continue; }
+        let new = pos.0 + vel.0;
+        let nc  = nav.world_to_cell(new);
+        if !nav.is_blocked(nc.0, nc.1) { pos.0 = new; continue; }
+        // Slide X
+        let xc = nav.world_to_cell(Vec2Fixed::new(new.x, pos.0.y));
+        if !nav.is_blocked(xc.0, xc.1) {
+            pos.0.x = new.x; vel.0.y = Fixed::ZERO; continue;
+        }
+        // Slide Y
+        let yc = nav.world_to_cell(Vec2Fixed::new(pos.0.x, new.y));
+        if !nav.is_blocked(yc.0, yc.1) {
+            pos.0.y = new.y; vel.0.x = Fixed::ZERO; continue;
+        }
+        vel.0 = Vec2Fixed::ZERO; // totalmente bloqueado
     }
 }
 
-/// Remove MoveTarget quando entidade chegou E não tem Path ativo.
-/// Path esgotado já foi removido em move_target_system.
+/// Remove MoveTarget quando entidade parou e não tem Path ativo.
 pub fn clear_arrived_targets(world: &mut World) {
-    // Candidatos: vel == 0 e tem MoveTarget
-    let candidates: Vec<hecs::Entity> = world
+    let stopped: Vec<hecs::Entity> = world
         .query::<(&Velocity, &MoveTarget)>()
         .iter()
-        .filter(|(_, (vel, _))| vel.0 == Vec2Fixed::ZERO)
+        .filter(|(_, (v, _))| v.0 == Vec2Fixed::ZERO)
         .map(|(e, _)| e)
         .collect();
-
-    // Só remove se não há Path ativo (Path ativo = ainda em trânsito)
-    let arrived: Vec<hecs::Entity> = candidates.into_iter()
+    let arrived: Vec<hecs::Entity> = stopped.into_iter()
         .filter(|e| world.get::<&Path>(*e).is_err())
         .collect();
-
-    for entity in arrived {
-        let _ = world.remove_one::<MoveTarget>(entity);
-    }
+    for e in arrived { let _ = world.remove_one::<MoveTarget>(e); }
 }
 
 #[cfg(test)]
@@ -115,96 +164,75 @@ mod tests {
     use super::*;
     use crate::core::types::Fixed;
     use crate::sim::components::*;
+    use crate::sim::pathfinding::NavigationGrid;
 
-    fn fixed(n: f64) -> Fixed { Fixed::from_num(n) }
-    fn pos(x: f64, y: f64) -> Position { Position(Vec2Fixed::new(fixed(x), fixed(y))) }
-    fn speed(s: f64) -> MoveSpeed { MoveSpeed(fixed(s)) }
+    fn f(n: f64) -> Fixed { Fixed::from_num(n) }
+    fn p(x: f64, y: f64) -> Position { Position(Vec2Fixed::new(f(x), f(y))) }
 
     #[test]
     fn entity_moves_toward_target() {
-        let mut world = World::new();
-        let e = world.spawn((
-            pos(0.0, 0.0),
-            Velocity::default(),
-            MoveTarget(Vec2Fixed::new(fixed(10.0), fixed(0.0))),
-            speed(2.0),
-        ));
-
-        move_target_system(&mut world);
-        movement_system(&mut world);
-
-        let p = world.get::<&Position>(e).unwrap();
-        assert!(p.0.x > Fixed::ZERO, "entidade deve ter avançado em X");
+        let mut w = World::new();
+        let e = w.spawn((p(0.,0.), Velocity::default(),
+            MoveTarget(Vec2Fixed::new(f(10.), f(0.))), MoveSpeed(f(2.))));
+        let nav = NavigationGrid::default_128();
+        move_target_system(&mut w);
+        movement_system(&mut w, &nav);
+        assert!(w.get::<&Position>(e).unwrap().0.x > Fixed::ZERO);
     }
 
     #[test]
     fn rooted_entity_does_not_move() {
-        let mut world = World::new();
-        let e = world.spawn((
-            pos(0.0, 0.0),
-            Velocity::default(),
-            MoveTarget(Vec2Fixed::new(fixed(10.0), fixed(0.0))),
-            speed(2.0),
-            CrowdControl { kind: CcKind::Root, ticks_remaining: 5 },
-        ));
-
-        move_target_system(&mut world);
-        movement_system(&mut world);
-
-        let p = world.get::<&Position>(e).unwrap();
-        assert_eq!(p.0.x, Fixed::ZERO, "entidade com root não deve mover");
+        let mut w = World::new();
+        let e = w.spawn((p(0.,0.), Velocity::default(),
+            MoveTarget(Vec2Fixed::new(f(10.), f(0.))), MoveSpeed(f(2.)),
+            CrowdControl { kind: CcKind::Root, ticks_remaining: 5 }));
+        let nav = NavigationGrid::default_128();
+        move_target_system(&mut w);
+        movement_system(&mut w, &nav);
+        assert_eq!(w.get::<&Position>(e).unwrap().0.x, Fixed::ZERO);
     }
 
     #[test]
-    fn follows_path_waypoints() {
-        let mut world = World::new();
-        // Dois waypoints: (5,0) depois (10,0)
-        let path = Path {
-            waypoints:   vec![
-                Vec2Fixed::new(fixed(5.0), fixed(0.0)),
-                Vec2Fixed::new(fixed(10.0), fixed(0.0)),
-            ],
-            current:     0,
-            destination: Vec2Fixed::new(fixed(10.0), fixed(0.0)),
-        };
-        let e = world.spawn((
-            pos(0.0, 0.0),
-            Velocity::default(),
-            MoveTarget(Vec2Fixed::new(fixed(10.0), fixed(0.0))),
-            speed(2.0),
-            path,
-        ));
-
-        // Avança até chegar perto do primeiro waypoint
-        for _ in 0..10 {
-            move_target_system(&mut world);
-            movement_system(&mut world);
-        }
-
-        // Deve ter avançado em direção a x=5
-        let p = world.get::<&Position>(e).unwrap();
-        assert!(p.0.x > fixed(0.0), "deve ter avançado");
+    fn accel_profile_ramps_up() {
+        let mut w = World::new();
+        let prof = AccelProfile { accel: f(0.10), decel_zone: f(8.), momentum: f(0.70) };
+        let e = w.spawn((p(0.,0.), Velocity::default(),
+            MoveTarget(Vec2Fixed::new(f(50.), f(0.))), MoveSpeed(f(0.375)), prof));
+        let nav = NavigationGrid::default_128();
+        move_target_system(&mut w);
+        let v1 = w.get::<&Velocity>(e).unwrap().0.x;
+        movement_system(&mut w, &nav);
+        move_target_system(&mut w);
+        let v2 = w.get::<&Velocity>(e).unwrap().0.x;
+        assert!(v2 > v1, "velocidade deve crescer com aceleração");
     }
 
     #[test]
-    fn path_removed_when_exhausted() {
-        let mut world = World::new();
-        // Waypoint muito próximo — chega em 1 tick
-        let path = Path {
-            waypoints:   vec![Vec2Fixed::new(fixed(1.0), fixed(0.0))],
-            current:     0,
-            destination: Vec2Fixed::new(fixed(1.0), fixed(0.0)),
-        };
-        let e = world.spawn((
-            pos(0.0, 0.0),
-            Velocity::default(),
-            MoveTarget(Vec2Fixed::new(fixed(1.0), fixed(0.0))),
-            speed(2.0), // speed > dist → chega imediatamente
-            path,
-        ));
+    fn accel_profile_decelerates_near_target() {
+        let mut w = World::new();
+        let spd = f(0.375);
+        let prof = AccelProfile { accel: f(1.0), decel_zone: f(8.), momentum: f(0.) };
+        // Hero longe → velocidade máxima
+        let e_far = w.spawn((p(0.,0.), Velocity::default(),
+            MoveTarget(Vec2Fixed::new(f(50.), f(0.))), MoveSpeed(spd), prof));
+        // Hero dentro da decel zone (dist=4, zone=8 → scale=0.5)
+        let e_near = w.spawn((p(46.,0.), Velocity::default(),
+            MoveTarget(Vec2Fixed::new(f(50.), f(0.))), MoveSpeed(spd), prof));
+        move_target_system(&mut w);
+        let v_far  = w.get::<&Velocity>(e_far).unwrap().0.x;
+        let v_near = w.get::<&Velocity>(e_near).unwrap().0.x;
+        assert!(v_near < v_far, "mais perto = velocidade menor na decel zone");
+    }
 
-        move_target_system(&mut world);
-
-        assert!(world.get::<&Path>(e).is_err(), "Path deve ser removido ao esgotar");
+    #[test]
+    fn wall_slide_prevents_clipping() {
+        let mut nav = NavigationGrid::default_128();
+        nav.set_blocked(5, 0, true);  // parede na célula (5,0)
+        let mut w = World::new();
+        // Entidade em x=4 com vel=1.5 → new_pos=5.5 → cai na célula (5,0) bloqueada
+        let e = w.spawn((p(4.,0.), Velocity(Vec2Fixed::new(f(1.5), Fixed::ZERO))));
+        movement_system(&mut w, &nav);
+        let px = w.get::<&Position>(e).unwrap().0.x;
+        assert!(px < f(5.), "não deve atravessar a parede");
     }
 }

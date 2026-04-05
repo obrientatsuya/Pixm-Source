@@ -35,13 +35,19 @@ pub fn pathfinding_system(world: &mut World, nav: &NavigationGrid) {
 }
 
 fn compute_path(nav: &NavigationGrid, start: Vec2Fixed, goal: Vec2Fixed) -> Path {
+    let gc = nav.world_to_cell(goal);
+
+    // Destino bloqueado → fica parado (sem waypoints).
+    if nav.is_blocked(gc.0, gc.1) {
+        return Path { waypoints: vec![], current: 0, destination: goal };
+    }
+
     // Linha de visão livre → caminho direto, sem passar por centros de célula.
     if line_of_sight(nav, start, goal) {
         return Path { waypoints: vec![goal], current: 0, destination: goal };
     }
 
     let sc = nav.world_to_cell(start);
-    let gc = nav.world_to_cell(goal);
 
     let cells = astar::find_path(
         |x, y| nav.is_blocked(x, y),
@@ -57,7 +63,7 @@ fn compute_path(nav: &NavigationGrid, start: Vec2Fixed, goal: Vec2Fixed) -> Path
 
     match waypoints.last_mut() {
         Some(last) => *last = goal,
-        None       => waypoints.push(goal),
+        None       => {},  // A* sem caminho — path vazio, entidade fica parada
     }
 
     Path { waypoints, current: 0, destination: goal }
