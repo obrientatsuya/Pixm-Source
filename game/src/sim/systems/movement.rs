@@ -9,8 +9,10 @@ use crate::sim::components::{Position, Velocity, MoveTarget, MoveSpeed,
                               Path, CrowdControl, CcKind, AccelProfile};
 use crate::sim::pathfinding::NavigationGrid;
 
-/// Distância mínima para snap (sim-units). Evita oscilação por imprecisão.
-const SNAP: f64 = 0.18;
+/// Snap do destino final (sim-units).
+const SNAP_FINAL: f64 = 0.22;
+/// Snap de waypoints intermediários — deve ser > max_speed para evitar overshoot.
+const SNAP_INTER: f64 = 0.65;
 
 pub fn move_target_system(world: &mut World) {
     let rooted: Vec<hecs::Entity> = world
@@ -45,11 +47,16 @@ pub fn move_target_system(world: &mut World) {
             let is_final = maybe_path.as_ref()
                 .map_or(true, |p| p.current + 1 >= p.waypoints.len());
 
-            let dir  = wp - pos.0;
-            let dist = dir.length();
+            let dir       = wp - pos.0;
+            let dist      = dir.length();
+            let snap_dist = if is_final {
+                Fixed::from_num(SNAP_FINAL)
+            } else {
+                Fixed::from_num(SNAP_INTER)
+            };
 
             // Snap ao waypoint/destino
-            if dist <= Fixed::from_num(SNAP) {
+            if dist <= snap_dist {
                 pos.0 = wp;
                 if let Some(ref mut p) = maybe_path {
                     p.advance();
@@ -107,19 +114,45 @@ pub fn move_target_system(world: &mut World) {
     for e in exhausted { let _ = world.remove_one::<Path>(e); }
 }
 
-/// Blenda vel antiga → desejada com momentum em virada.
-/// Cap fixo em 1.4× max_speed — entidades rápidas não deslizam demais.
+/// Blenda vel antiga → desejada com momentum proporcional à velocidade atual.
+///
+/// Momentum escala pelo quadrado de (|vel| / max_speed):
+///   - pouco deslocamento (vel baixa) → quase sem slide
+///   - velocidade máxima acumulada   → slide completo
+/// Isso garante que só sente o deslize após acelerar por tempo suficiente.
 fn blend(old: Vec2Fixed, desired: Vec2Fixed, max_speed: Fixed, p: AccelProfile) -> Vec2Fixed {
     if desired == Vec2Fixed::ZERO { return Vec2Fixed::ZERO; }
     let dot = old.dot(desired);
     if dot < Fixed::ZERO && old.length_sq() > Fixed::from_num(0.002) {
-        // Virada brusca: injeta momentum na nova direção
-        let blended = desired + old * p.momentum;
+        // Momentum proporcional à vel atual² / max² (sem sqrt, determinístico)
+        let spd_sq   = old.length_sq();
+        let max_sq   = max_speed * max_speed;
+        let ratio_sq = if max_sq > Fixed::ZERO { (spd_sq / max_sq).min(Fixed::ONE) }
+                       else { Fixed::ZERO };
+        let effective = p.momentum * ratio_sq;
+        let blended = desired + old * effective;
         let len = blended.length();
-        let cap = max_speed * Fixed::from_num(1.4);
+        let cap = max_speed * Fixed::from_num(1.3);
         if len > cap { blended * (cap / len) } else { blended }
     } else {
         old + (desired - old) * p.accel
+    }
+}
+
+/// Drena velocidade de entidades com AccelProfile que não têm MoveTarget ativo.
+/// Chamado após stop_hero() — o personagem desacelera suavemente em vez de parar.
+pub fn coast_system(world: &mut World) {
+    let coasting: Vec<(hecs::Entity, Vec2Fixed)> = world
+        .query::<(&Velocity, &AccelProfile, Option<&MoveTarget>)>()
+        .iter()
+        .filter(|(_, (_, _, mt))| mt.is_none())
+        .map(|(e, (v, _, _))| (e, v.0))
+        .collect();
+    for (e, old_vel) in coasting {
+        if let Ok(mut v) = world.get::<&mut Velocity>(e) {
+            v.0 = old_vel * Fixed::from_num(0.78);
+            if v.0.length_sq() < Fixed::from_num(0.0004) { v.0 = Vec2Fixed::ZERO; }
+        }
     }
 }
 

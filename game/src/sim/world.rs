@@ -50,6 +50,7 @@ impl SimWorld {
         pathfinding_system(&mut self.world, &self.nav_grid);
 
         // 3. Movimento
+        movement::coast_system(&mut self.world);
         movement::move_target_system(&mut self.world);
         movement::movement_system(&mut self.world, &self.nav_grid);
         movement::clear_arrived_targets(&mut self.world);

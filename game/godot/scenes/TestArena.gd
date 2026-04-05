@@ -132,6 +132,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_W: game.on_ability(1, wp.x, wp.y)
 			KEY_E: game.on_ability(2, wp.x, wp.y)
 			KEY_R: game.on_ability(3, wp.x, wp.y)
+			KEY_S: game.stop_hero()
 			KEY_Y: _toggle_camera_lock()
 
 func _toggle_camera_lock() -> void:
@@ -144,10 +145,12 @@ func _zoom(factor: float) -> void:
 # ─── Stats panel ──────────────────────────────────────────────────────────────
 
 func _refresh_stats() -> void:
-	var hero_hp : Vector2i = game.get_hero_hp()
-	var lines   := PackedStringArray()
+	var hero_hp  : Vector2i = game.get_hero_hp()
+	var hero_spd : float    = game.get_hero_speed()
+	var lines    := PackedStringArray()
 	lines.append("── HERÓI ─────────────────")
-	lines.append("  HP  %d / %d" % [hero_hp.x, hero_hp.y])
+	lines.append("  HP     %d / %d" % [hero_hp.x, hero_hp.y])
+	lines.append("  speed  %.1f px/tick" % hero_spd)
 
 	lines.append("── BONECOS ───────────────")
 	for i in range(_dummy_ids.size()):

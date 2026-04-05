@@ -68,10 +68,22 @@ impl GameLoopNode {
         self.entity_nodes.clear();
     }
 
-    /// Pixels por unidade de simulação. Afeta rendering e conversão de cliques.
     #[func]
-    pub fn set_render_scale(&mut self, scale: f32) {
-        self.render_scale = scale.max(0.001);
+    pub fn set_render_scale(&mut self, scale: f32) { self.render_scale = scale.max(0.001); }
+
+    /// Para o herói: remove MoveTarget/Path e zera velocidade.
+    #[func]
+    pub fn stop_hero(&mut self) {
+        use crate::sim::components::{Velocity, MoveTarget, Path, Owner};
+        use crate::core::types::PlayerId;
+        let Some(ref mut sim) = self.sim else { return };
+        let heroes: Vec<hecs::Entity> = sim.world.query::<&Owner>().iter()
+            .filter(|(_, o)| o.0 == PlayerId(0)).map(|(e, _)| e).collect();
+        for e in heroes {
+            let _ = sim.world.remove_one::<MoveTarget>(e);
+            let _ = sim.world.remove_one::<Path>(e);
+            // velocidade drena via coast_system — para suavemente
+        }
     }
 
     #[func]
@@ -84,9 +96,9 @@ impl GameLoopNode {
             Position(pos), PrevPosition(pos), Velocity::default(),
             MoveSpeed(Fixed::from_num(3.0 / self.render_scale as f64)),
             crate::sim::components::AccelProfile {
-                accel:      Fixed::from_num(0.12), // ~8 ticks p/ vel máxima (~130ms)
-                decel_zone: Fixed::from_num(10.0), // últimos 80px freiam gradualmente
-                momentum:   Fixed::from_num(0.72), // 72% preservado em virada
+                accel:      Fixed::from_num(0.07),
+                decel_zone: Fixed::from_num(10.0),
+                momentum:   Fixed::from_num(0.82),
             },
             Owner(PlayerId(0)), Health::new(500), Team(0),
             crate::sim::components::AbilitySlots::default(),
@@ -162,30 +174,35 @@ impl GameLoopNode {
     pub fn get_hero_hp(&self) -> Vector2i {
         use crate::sim::components::{Health, Owner};
         use crate::core::types::PlayerId;
-        self.sim.as_ref()
-            .and_then(|sim| {
-                sim.world.query::<(&Health, &Owner)>().iter()
-                    .find(|(_, (_, o))| o.0 == PlayerId(0))
-                    .map(|(_, (hp, _))| Vector2i::new(hp.current, hp.max))
-            })
-            .unwrap_or(Vector2i::new(0, 1))
+        self.sim.as_ref().and_then(|s| {
+            s.world.query::<(&Health, &Owner)>().iter()
+                .find(|(_, (_, o))| o.0 == PlayerId(0))
+                .map(|(_, (hp, _))| Vector2i::new(hp.current, hp.max))
+        }).unwrap_or(Vector2i::new(0, 1))
     }
 
-    /// Retorna (current_hp, max_hp) de uma entidade por entity_id.
+    #[func]
+    pub fn get_hero_speed(&self) -> f32 {
+        use crate::sim::components::{Velocity, Owner};
+        use crate::core::types::PlayerId;
+        self.sim.as_ref().and_then(|s| {
+            s.world.query::<(&Velocity, &Owner)>().iter()
+                .find(|(_, (_, o))| o.0 == PlayerId(0))
+                .map(|(_, (v, _))| v.0.length().to_num::<f32>() * self.render_scale)
+        }).unwrap_or(0.0)
+    }
+
     #[func]
     pub fn get_entity_hp(&self, entity_id: i64) -> Vector2i {
         use crate::sim::components::Health;
         let eid = entity_id as u32;
-        self.sim.as_ref()
-            .and_then(|sim| {
-                sim.world.query::<&Health>().iter()
-                    .find(|(e, _)| e.id() == eid)
-                    .map(|(_, hp)| Vector2i::new(hp.current, hp.max))
-            })
-            .unwrap_or(Vector2i::new(0, 1))
+        self.sim.as_ref().and_then(|s| {
+            s.world.query::<&Health>().iter()
+                .find(|(e, _)| e.id() == eid)
+                .map(|(_, hp)| Vector2i::new(hp.current, hp.max))
+        }).unwrap_or(Vector2i::new(0, 1))
     }
 
-    /// Posição sim-space (unidades sim, sem render_scale) de qualquer entidade.
     #[func]
     pub fn get_entity_pos(&self, entity_id: i64) -> Vector2 {
         use crate::sim::components::Position;
